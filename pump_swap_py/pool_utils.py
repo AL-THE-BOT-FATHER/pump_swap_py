@@ -145,13 +145,13 @@ def tokens_for_sol(base_amount_in, pool_base_token_reserves, pool_quote_token_re
     fees = lp_fee + protocol_fee
     return int(quote_amount_out - fees)
 
-def get_creator_vault_info(client: Client, creator: Pubkey) -> tuple[Pubkey|None, Pubkey|None]:
+def get_creator_vault_info(client: Client, creator: Pubkey, mint: Pubkey) -> tuple[Pubkey|None, Pubkey|None]:
     try:
         creator_vault_authority = Pubkey.find_program_address([b"creator_vault", bytes(creator)], PF_AMM)[0]
         creator_vault_ata = client.get_token_accounts_by_owner_json_parsed(
             creator_vault_authority,
             TokenAccountOpts(
-                mint=WSOL,
+                mint=mint,
                 program_id=TOKEN_PROGRAM_ID
             )
         ).value[0].pubkey
