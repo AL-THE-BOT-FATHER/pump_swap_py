@@ -6,20 +6,23 @@ Python library to trade on Pump Swap (AMM).
 pip install solana==0.36.1 solders==0.23.0
 ```
 
-# Instructions
-
-Clone the repo, and add your Private Key (Base58 string) and RPC to the config.py.
-
-**If you can - please support my work and donate to: 3pPK76GL5ChVFBHND54UfBMtg36Bsh1mzbQPTbcK89PD**
+Updated: 8/2/2025
 
 
 # Contact
 
-My services are for hire. Contact me if you need help integrating the code into your own project.
+My Telegram: https://t.me/AL_THE_BOT_FATHER
 
-Telegram: https://t.me/AL_THE_BOT_FATHER
+Bot Mafia Telegram: https://t.me/Bot_Mafia_Support
 
-Group Telegram: https://t.me/Bot_Mafia_Support
+<img width="200" height="200" alt="bot_mafia" src="https://github.com/user-attachments/assets/b0c8ca7c-83c0-45e9-8007-be85f13a4b0a" />
+
+
+# Instructions
+
+Clone the repo and use example_buy.py or example_sell.py.
+
+**If you can - please support my work and donate to: 3pPK76GL5ChVFBHND54UfBMtg36Bsh1mzbQPTbcK89PD**
 
 
 # FAQS
@@ -34,15 +37,73 @@ You get what you pay for. Don't use the main-net RPC, just spend the money for H
 
 **How do I change the fee?** 
 
-Modify the UNIT_BUDGET and UNIT_PRICE in the config.py. 
-
-**Why doesn't fetch_pair_from_rpc() work for me?** 
-
-Free tier RPCs do not permit GET_PROGRAM_ACCOUNTS()! You must use a paid RPC. 
+Modify the unit_budget and unit_price values. 
 
 **Does this code work on devnet?**
 
 No. 
+
+
+# Example
+
+```
+from solana.rpc.api import Client
+from solders.keypair import Keypair  # type: ignore
+
+from pool_utils import fetch_pair_from_rpc
+from pump_swap import buy
+
+# Configuration
+priv_key = "base58_priv_str_here"
+rpc = "rpc_url_here"
+mint_str = "pump_swap_address"
+sol_in = 0.1
+slippage = 5
+unit_budget = 150_000
+unit_price = 1_000_000
+
+# Initialize client and keypair
+client = Client(rpc)
+payer_keypair = Keypair.from_base58_string(priv_key)
+
+# Fetch pair and execute buy
+pair_address = fetch_pair_from_rpc(client, mint_str)
+if pair_address:
+    buy(client, payer_keypair, pair_address, sol_in, slippage, unit_budget, unit_price)
+else:
+    print("No pair address found...")
+
+```
+
+```
+from solana.rpc.api import Client
+from solders.keypair import Keypair  # type: ignore
+
+from pool_utils import fetch_pair_from_rpc
+from pump_swap import sell
+
+# Configuration
+priv_key = "base58_priv_str_here"
+rpc = "rpc_url_here"
+mint_str = "pump_swap_address"
+percentage = 100
+slippage = 5
+unit_budget = 150_000
+unit_price = 1_000_000
+
+# Initialize client and keypair
+client = Client(rpc)
+payer_keypair = Keypair.from_base58_string(priv_key)
+
+# Fetch pair and execute buy
+pair_address = fetch_pair_from_rpc(client, mint_str)
+
+if pair_address:
+    sell(client, payer_keypair, pair_address, percentage, slippage, unit_budget, unit_price)
+else:
+    print("No pair address found...")
+
+```
 
 # Contributors
 
