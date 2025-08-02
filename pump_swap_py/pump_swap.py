@@ -51,14 +51,21 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
             return False
         print("Pool keys fetched successfully.")
 
+        is_inverted = pool_keys.base_mint == WSOL
+
         print("Fetching creator vault info...")
-        creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator)
+        if is_inverted:
+            mint = pool_keys.quote_mint
+            creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator, mint)
+        else:
+            mint = pool_keys.base_mint
+            creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator, WSOL)
+
         if creator_vault_authority is None or creator_vault_ata is None:
             print("No creator vault info found, aborting transaction.")
             return False
         print("Creator vault info fetched successfully.")
 
-        mint = pool_keys.base_mint
         token_info = client.get_account_info_json_parsed(mint).value
         base_token_program = token_info.owner
         decimal = token_info.data.parsed['info']['decimals']
@@ -66,13 +73,19 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
         print("Calculating transaction amounts...")
         sol_decimal = 1e9
         token_decimal = 10**decimal
-        slippage_adjustment = 1 + (slippage / 100)
-        max_quote_amount_in = int((sol_in * slippage_adjustment) * sol_decimal)
-
         base_reserve, quote_reserve = get_pool_reserves(client, pool_keys)
         raw_sol_in = int(sol_in * sol_decimal)
-        base_amount_out = sol_for_tokens(raw_sol_in, base_reserve, quote_reserve)
-        print(f"Max Quote Amount In: {max_quote_amount_in / sol_decimal} | Base Amount Out: {base_amount_out / token_decimal}")
+
+        if is_inverted:
+            slippage_adjustment = 1 - (slippage / 100)
+            base_amount_in = int((sol_in * slippage_adjustment) * sol_decimal)
+            min_quote_amount_out = tokens_for_sol(raw_sol_in, quote_reserve, base_reserve) *1000
+            print(f"Min Quote Amount Out (SOL) : {base_amount_in / sol_decimal} | Base Amount In (Token): {min_quote_amount_out / token_decimal}")
+        else:
+            slippage_adjustment = 1 + (slippage / 100)
+            base_amount_out = sol_for_tokens(raw_sol_in, base_reserve, quote_reserve)
+            max_quote_amount_in = int((sol_in * slippage_adjustment) * sol_decimal)
+            print(f"Max Quote Amount In: {max_quote_amount_in / sol_decimal} | Base Amount Out: {base_amount_out / token_decimal}")
 
         print("Checking for existing token account...")
         token_account_check = client.get_token_accounts_by_owner(payer_keypair.pubkey(), TokenAccountOpts(mint), Processed)
@@ -98,7 +111,7 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
                 to_pubkey=wsol_token_account,
                 base=payer_keypair.pubkey(),
                 seed=seed,
-                lamports=int(balance_needed + max_quote_amount_in),
+                lamports=int(balance_needed + (min_quote_amount_out if is_inverted else max_quote_amount_in)),
                 space=ACCOUNT_SPACE,
                 owner=TOKEN_PROGRAM_ID,
             )
@@ -113,6 +126,15 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
             )
         )
 
+        if is_inverted:
+            protocol_fee_recipient_token_account = get_associated_token_address(
+                PROTOCOL_FEE_RECIPIENT,
+                mint,
+                base_token_program,
+            )
+        else:
+            protocol_fee_recipient_token_account = PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT
+
         user_volume_accumulator = Pubkey.find_program_address([b"user_volume_accumulator", bytes(payer_keypair.pubkey())], PF_AMM)[0]
 
         print("Creating swap instructions...")
@@ -122,12 +144,12 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
             AccountMeta(pubkey=GLOBAL_CONFIG, is_signer=False, is_writable=False),
             AccountMeta(pubkey=pool_keys.base_mint, is_signer=False, is_writable=False),
             AccountMeta(pubkey=pool_keys.quote_mint, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=token_account, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=wsol_token_account, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=wsol_token_account if is_inverted else token_account, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=token_account if is_inverted else wsol_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=pool_keys.pool_base_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=pool_keys.pool_quote_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=PROTOCOL_FEE_RECIPIENT, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=protocol_fee_recipient_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=base_token_program, is_signer=False, is_writable=False),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM, is_signer=False, is_writable=False),
@@ -141,9 +163,15 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
         ]
 
         data = bytearray()
-        data.extend(bytes.fromhex("66063d1201daebea"))
-        data.extend(struct.pack('<Q', base_amount_out))
-        data.extend(struct.pack('<Q', max_quote_amount_in))
+        if is_inverted:
+            data.extend(bytes.fromhex("33e685a4017f83ad"))
+            data.extend(struct.pack('<Q', base_amount_in))
+            data.extend(struct.pack('<Q', min_quote_amount_out))
+        else:
+            data.extend(bytes.fromhex("66063d1201daebea"))
+            data.extend(struct.pack('<Q', base_amount_out))
+            data.extend(struct.pack('<Q', max_quote_amount_in))
+
         swap_instruction = Instruction(PF_AMM, bytes(data), keys)
 
         print("Preparing to close WSOL account after swap...")
@@ -203,15 +231,22 @@ def sell(client: Client, payer_keypair: Keypair, pair_address: str, percentage: 
             print("No pool keys found, aborting transaction.")
             return False
         print("Pool keys fetched successfully.")
+        
+        is_inverted = pool_keys.base_mint == WSOL
 
         print("Fetching creator vault info...")
-        creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator)
+        if is_inverted:
+            mint = pool_keys.quote_mint
+            creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator, mint)
+        else:
+            mint = pool_keys.base_mint
+            creator_vault_authority, creator_vault_ata = get_creator_vault_info(client, pool_keys.creator, WSOL)
+
         if creator_vault_authority is None or creator_vault_ata is None:
             print("No creator vault info found, aborting transaction.")
             return False
         print("Creator vault info fetched successfully.")
 
-        mint = pool_keys.base_mint
         token_info = client.get_account_info_json_parsed(mint).value
         base_token_program = token_info.owner
         decimal = token_info.data.parsed['info']['decimals']
@@ -258,41 +293,69 @@ def sell(client: Client, payer_keypair: Keypair, pair_address: str, percentage: 
         print("Calculating transaction amounts...")
         sol_decimal = 1e9
         token_decimal = 10**decimal
-        base_amount_in = int(token_balance * (percentage / 100))
         base_reserve, quote_reserve = get_pool_reserves(client, pool_keys)
-        sol_out = tokens_for_sol(base_amount_in, base_reserve, quote_reserve)
         slippage_adjustment = 1 - (slippage / 100)
-        min_quote_amount_out = int((sol_out * slippage_adjustment))
-        print(f"Base Amount In: {base_amount_in / token_decimal}, Minimum Quote Amount Out: {min_quote_amount_out / sol_decimal}")
 
-        print("Creating swap instructions...")    
+        if is_inverted:
+            # TODO: fix 100% sell it for close account
+            max_quote_amount_in = int(token_balance * (percentage / 100))
+            sol_out = sol_for_tokens(max_quote_amount_in, base_reserve, quote_reserve)
+            base_amount_out = int((sol_out * slippage_adjustment))
+            print(f"Base Amount Out (SOL) : {base_amount_out / sol_decimal}, Maximum Quote Amount In (Token): { max_quote_amount_in / token_decimal}")
+
+        else:
+            base_amount_in = int(token_balance * (percentage / 100))
+            sol_out = tokens_for_sol(base_amount_in, base_reserve, quote_reserve)
+            min_quote_amount_out = int((sol_out * slippage_adjustment))
+            print(f"Base Amount In: {base_amount_in / token_decimal}, Minimum Quote Amount Out: {min_quote_amount_out / sol_decimal}")
+
+        if is_inverted:
+            protocol_fee_recipient_token_account = get_associated_token_address(
+                PROTOCOL_FEE_RECIPIENT,
+                mint,
+                base_token_program,
+            )
+        else:
+            protocol_fee_recipient_token_account = PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT
+
+        user_volume_accumulator = Pubkey.find_program_address([b"user_volume_accumulator", bytes(payer_keypair.pubkey())], PF_AMM)[0]
+
+        print("Creating swap instructions...")
         keys = [
             AccountMeta(pubkey=pool_keys.amm, is_signer=False, is_writable=True),
             AccountMeta(pubkey=payer_keypair.pubkey(), is_signer=True, is_writable=True),
             AccountMeta(pubkey=GLOBAL_CONFIG, is_signer=False, is_writable=False),
             AccountMeta(pubkey=pool_keys.base_mint, is_signer=False, is_writable=False),
             AccountMeta(pubkey=pool_keys.quote_mint, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=token_account, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=wsol_token_account, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=wsol_token_account if is_inverted else token_account, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=token_account if is_inverted else wsol_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=pool_keys.pool_base_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=pool_keys.pool_quote_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=PROTOCOL_FEE_RECIPIENT, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=protocol_fee_recipient_token_account, is_signer=False, is_writable=True),
             AccountMeta(pubkey=base_token_program, is_signer=False, is_writable=False),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM, is_signer=False, is_writable=False),
             AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM, is_signer=False, is_writable=False),
             AccountMeta(pubkey=EVENT_AUTH, is_signer=False, is_writable=False),
             AccountMeta(pubkey=PF_AMM, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=creator_vault_ata, is_signer=False, is_writable=True), 
+            AccountMeta(pubkey=creator_vault_ata, is_signer=False, is_writable=True),
             AccountMeta(pubkey=creator_vault_authority, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=GLOBAL_VOL_ACC, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=user_volume_accumulator, is_signer=False, is_writable=True),
         ]
 
+
         data = bytearray()
-        data.extend(bytes.fromhex("33e685a4017f83ad"))
-        data.extend(struct.pack('<Q', base_amount_in))
-        data.extend(struct.pack('<Q', min_quote_amount_out))
-        
+        if is_inverted:
+            data.extend(bytes.fromhex("66063d1201daebea"))
+            data.extend(struct.pack('<Q', base_amount_out))
+            data.extend(struct.pack('<Q', max_quote_amount_in))
+        else:
+            data.extend(bytes.fromhex("33e685a4017f83ad"))
+            data.extend(struct.pack('<Q', base_amount_in))
+            data.extend(struct.pack('<Q', min_quote_amount_out))
+            
         swap_instruction = Instruction(PF_AMM, bytes(data), keys)
 
         print("Preparing to close WSOL account after swap...")
@@ -321,7 +384,8 @@ def sell(client: Client, payer_keypair: Keypair, pair_address: str, percentage: 
                     base_token_program, token_account, payer_keypair.pubkey(), payer_keypair.pubkey()
                 )
             )
-            instructions.append(close_account_instruction)
+            # TODO: fix 100% sell it for close account
+            # instructions.append(close_account_instruction)
 
         print("Compiling transaction message...")
         compiled_message = MessageV0.try_compile(
