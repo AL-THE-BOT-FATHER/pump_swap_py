@@ -37,6 +37,7 @@ from pool_utils import (
     get_pool_reserves,
     tokens_for_sol,
     sol_for_tokens,
+    derive_fee_config,
 )
 
 def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float = 0.1, slippage: int = 5, unit_budget: int = 150_000, unit_price: int = 1_000_000) -> bool:
@@ -114,6 +115,7 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
         )
 
         user_volume_accumulator = Pubkey.find_program_address([b"user_volume_accumulator", bytes(payer_keypair.pubkey())], PF_AMM)[0]
+        fee_config = derive_fee_config()
 
         print("Creating swap instructions...")
         keys = [
@@ -138,6 +140,8 @@ def buy(client: Client, payer_keypair: Keypair, pair_address: str, sol_in: float
             AccountMeta(pubkey=creator_vault_authority, is_signer=False, is_writable=False),
             AccountMeta(pubkey=GLOBAL_VOL_ACC, is_signer=False, is_writable=True),
             AccountMeta(pubkey=user_volume_accumulator, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=fee_config, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=FEE_PROGRAM, is_signer=False, is_writable=False),
         ]
 
         data = bytearray()
@@ -265,6 +269,8 @@ def sell(client: Client, payer_keypair: Keypair, pair_address: str, percentage: 
         min_quote_amount_out = int((sol_out * slippage_adjustment))
         print(f"Base Amount In: {base_amount_in / token_decimal}, Minimum Quote Amount Out: {min_quote_amount_out / sol_decimal}")
 
+        fee_config = derive_fee_config()
+
         print("Creating swap instructions...")    
         keys = [
             AccountMeta(pubkey=pool_keys.amm, is_signer=False, is_writable=True),
@@ -286,6 +292,8 @@ def sell(client: Client, payer_keypair: Keypair, pair_address: str, percentage: 
             AccountMeta(pubkey=PF_AMM, is_signer=False, is_writable=False),
             AccountMeta(pubkey=creator_vault_ata, is_signer=False, is_writable=True), 
             AccountMeta(pubkey=creator_vault_authority, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=fee_config, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=FEE_PROGRAM, is_signer=False, is_writable=False),
         ]
 
         data = bytearray()
