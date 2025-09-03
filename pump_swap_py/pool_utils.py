@@ -10,7 +10,7 @@ from solana.rpc.types import MemcmpOpts, TokenAccountOpts
 from solders.pubkey import Pubkey  # type: ignore
 from solders.rpc.responses import RpcKeyedAccount  # type: ignore
 
-from constants import PF_AMM, TOKEN_PROGRAM_ID, WSOL
+from constants import FEE_PROGRAM, PF_AMM, TOKEN_PROGRAM_ID, WSOL
 
 POOL_LAYOUT = Struct(
     Padding(8),
@@ -158,3 +158,13 @@ def get_creator_vault_info(client: Client, creator: Pubkey) -> tuple[Pubkey|None
         return creator_vault_authority, creator_vault_ata
     except:
         return None, None
+
+def derive_fee_config():
+    try:
+        fee_config, _ = Pubkey.find_program_address(
+            ["fee_config".encode(), bytes(PF_AMM)],
+            FEE_PROGRAM
+        )
+        return fee_config
+    except Exception:
+        return None
