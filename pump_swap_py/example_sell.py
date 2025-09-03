@@ -19,8 +19,8 @@ payer_keypair = Keypair.from_base58_string(priv_key)
 
 # Fetch pair and execute buy
 pair_address = fetch_pair_from_rpc(client, mint_str)
-
 if pair_address:
     sell(client, payer_keypair, pair_address, percentage, slippage, unit_budget, unit_price)
 else:
     print("No pair address found...")
+
