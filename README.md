@@ -16,7 +16,6 @@ PumpSwap program (pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA):
 
 My Telegram: https://t.me/AL_THE_BOT_FATHER
 
-Bot Mafia Telegram: https://t.me/Bot_Mafia_Support
 
 <img width="200" height="200" alt="bot_mafia" src="https://github.com/user-attachments/assets/b0c8ca7c-83c0-45e9-8007-be85f13a4b0a" />
 
