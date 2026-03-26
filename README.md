@@ -6,7 +6,10 @@ Python library to trade on Pump Swap (AMM).
 pip install solana==0.36.1 solders==0.23.0
 ```
 
-Updated: 9/2/2025
+Updated: 03/26/2026
+Update: Cashback and Mayhem Mode are now integrated. Everything is up to date
+
+
 
 PumpSwap program (pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA):
 - Buy instruction: Add accounts at indexes 21 (fee_config) and 22 (fee_program)
@@ -110,3 +113,4 @@ else:
 # Contributors
 
 https://github.com/Jarki
+https://github.com/Larswiso
